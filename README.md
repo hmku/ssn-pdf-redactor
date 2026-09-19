@@ -1,0 +1,91 @@
+# SSN PDF Redactor
+
+A local command-line tool that OCRs PDFs and permanently removes exact Social
+Security numbers. It preserves the originals, prompts for SSNs without echoing
+them, and writes redacted copies plus a CSV review report.
+
+The tool is designed for tax documents and other sensitive PDFs on macOS. It
+does not upload documents or SSNs anywhere.
+
+> [!IMPORTANT]
+> OCR can misread digits. Always inspect the pages listed in the report and
+> manually review every PDF for which no match was found. Do not treat an
+> automated `redacted` result as proof that a document is safe to share.
+
+## Requirements
+
+- Python 3.9 or newer
+- [OCRmyPDF](https://ocrmypdf.readthedocs.io/) for scanned PDFs
+- [PyMuPDF](https://pymupdf.readthedocs.io/) for redaction
+
+Install the free dependencies on macOS:
+
+```bash
+brew install ocrmypdf
+python3 -m pip install -r requirements.txt
+```
+
+If `brew` is not installed, install Homebrew from <https://brew.sh> first.
+
+## Usage
+
+Put the source PDFs in one folder. The output folder must be separate and
+outside the source folder. PDFs in subfolders are processed recursively, and
+the folder structure is mirrored in the output.
+
+```bash
+python3 ./redact_ssn_pdfs.py \
+  "/path/to/Original Tax PDFs" \
+  "/path/to/Redacted Tax PDFs"
+```
+
+Enter each SSN when prompted. Input is hidden and is never written to shell
+history, filenames, or the CSV report. Press Return at an empty prompt when
+finished.
+
+The matcher ignores punctuation and spacing, so the same target can match
+`123-45-6789`, `123 45 6789`, or `123456789` when OCR recognizes it correctly.
+
+### Redact contextual last-four forms
+
+To also remove the last four digits when they appear near an SSN label or in a
+masked form such as `XXX-XX-1234`, add `--redact-last-four`:
+
+```bash
+python3 ./redact_ssn_pdfs.py \
+  "/path/to/Original Tax PDFs" \
+  "/path/to/Redacted Tax PDFs" \
+  --redact-last-four
+```
+
+This option deliberately does not remove every matching four-digit number.
+Doing so could erase tax years, dollar amounts, ZIP codes, and form numbers.
+
+### Other options
+
+- `--overwrite` replaces files already present in the output folder.
+- `--no-ocr` skips OCR when every PDF already has searchable text.
+
+Run `python3 ./redact_ssn_pdfs.py --help` for the complete CLI reference.
+
+## Review the results
+
+Open `redaction_report.csv` in the output folder. It contains relative paths,
+match counts, and the pages that require inspection. Review every listed page
+and every PDF marked `review` or `error`.
+
+Keep the originals until the redacted copies have been checked. Also consider
+removing bank account and routing numbers, IRS identity-protection PINs, dates
+of birth, signatures, and other identifiers before sharing tax documents.
+
+## Development
+
+The tests use only synthetic SSNs and PDFs:
+
+```bash
+python3 -m unittest discover -s tests -v
+```
+
+## License
+
+[MIT](LICENSE)
