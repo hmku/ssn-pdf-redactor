@@ -1,5 +1,17 @@
 # SSN PDF Redactor
 
+Also supports driver's license numbers, bank account numbers, and bank routing
+numbers. Run the same command below; hidden prompts now ask for each category.
+Press Return to skip a category or finish entering multiple values. You can
+redact bank or license identifiers without entering an SSN.
+
+Provide the complete numbers you want removed. License numbers may contain
+letters (matched without case sensitivity); account and routing numbers retain
+leading zeros. Spaces and hyphens are ignored during matching. This does not
+automatically detect unknown identifiers. The `--redact-last-four` option applies
+only to SSNs, not masked bank or license numbers. Short identifiers can match
+unrelated values, so inspect the results.
+
 A local command-line tool that OCRs PDFs and permanently removes exact Social
 Security numbers. It preserves the originals, prompts for SSNs without echoing
 them, and writes redacted copies plus a CSV review report.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""OCR and permanently redact one or more exact SSNs from PDFs.
+"""OCR and redact supplied SSNs, license, account, and routing numbers from PDFs.
 
 The script runs entirely on the local computer. It preserves source PDFs, prompts
 for SSNs without echoing them, and writes redacted copies plus a CSV review log.
@@ -15,7 +15,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 try:
@@ -34,10 +34,74 @@ class Match:
     rect: object
 
 
+@dataclass(frozen=True)
+class Identifier:
+    kind: str
+    value: str = field(repr=False)
+
+
+def collect_identifiers() -> list[Identifier]:
+    """Keep values out of CLI arguments, reports, and object representations."""
+    result = []
+    for kind in ('SSN', "Driver's license", 'Bank account', 'Bank routing'):
+        print(f'Enter {kind} numbers; press Return to skip or finish this category.')
+        while True:
+            raw = getpass.getpass(f'{kind}: ').strip()
+            if not raw:
+                break
+            value = re.sub(r'[\s-]', '', raw).upper()
+            valid = bool(re.fullmatch(r'[A-Z0-9]+', value))
+            if kind in ('SSN', 'Bank routing'):
+                valid = bool(re.fullmatch(r'[0-9]{9}', value))
+            elif kind == 'Bank account':
+                valid = bool(re.fullmatch(r'[0-9]+', value))
+            if not valid:
+                print('Use letters/digits for licenses, digits for bank accounts, '
+                      'and exactly 9 digits for SSNs and routing numbers. Spaces and hyphens are allowed.')
+                continue
+            item = Identifier(kind, value)
+            if item not in result:
+                result.append(item)
+    if not result:
+        raise SystemExit('No identifiers entered; nothing to redact.')
+    return result
+
+
+def find_identifiers(page, targets, page_number, redact_last_four):
+    matches = []
+    for index, item in enumerate(targets, 1):
+        if isinstance(item, str):
+            item = Identifier('SSN', item)
+        label = f'{item.kind} #{index}'
+        if item.kind == 'SSN':
+            matches.extend(Match(m.page_number, label, m.rect) for m in
+                           find_matches(page, [item.value], page_number, redact_last_four))
+            continue
+        # Preserve letters and word boundaries: do not join unrelated numbers
+        # across explanatory words or match an identifier inside a longer one.
+        pattern = re.compile(r'(?<![A-Z0-9])' +
+                             r'[\s\-–—]*'.join(re.escape(c) for c in item.value) +
+                             r'(?![A-Z0-9])', re.IGNORECASE)
+        for words in line_word_groups(page):
+            text = ''
+            owners = []
+            for word_index, word in enumerate(words):
+                if text:
+                    text += ' '
+                    owners.append(None)
+                token = str(word[4])
+                text += token
+                owners.extend([word_index] * len(token))
+            for match in pattern.finditer(text):
+                indexes = sorted({i for i in owners[match.start():match.end()] if i is not None})
+                matches.append(Match(page_number, label, words_rect(words, indexes)))
+    return matches
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "OCR PDFs and permanently redact exact Social Security numbers. "
+            "OCR PDFs and redact supplied SSNs, driver's license, bank account, and routing numbers. "
             "Original files are never modified."
         )
     )
@@ -232,6 +296,8 @@ def find_matches(
     page_number: int,
     redact_last_four: bool = False,
 ) -> list[Match]:
+    if any(isinstance(target, Identifier) for target in targets):
+        return find_identifiers(page, targets, page_number, redact_last_four)
     matches: list[Match] = []
     seen: set[tuple[int, int, int, int, int]] = set()
     groups = line_word_groups(page)
@@ -399,13 +465,13 @@ def process_one(
             )
             if failures:
                 pages = ", ".join(map(str, failures))
-                return "error", matches, f"Verification still found an SSN on page(s): {pages}"
+                return "error", matches, f"Verification still found an identifier on page(s): {pages}"
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(temporary_output, destination)
         except Exception as exc:
             return "error", [], f"Redaction failed: {exc}"
     if not matches:
-        return "review", [], "No exact SSN match found; inspect this PDF manually"
+        return "review", [], "No exact identifier match found; inspect this PDF manually"
     scope = "Full and contextual last-four matches" if redact_last_four else "Exact matches"
     return "redacted", matches, f"{scope} removed; visually inspect the listed pages"
 
@@ -425,7 +491,7 @@ def main() -> int:
     dependency_check(args.no_ocr)
     source_root, pdfs = resolve_pdfs(args.input)
     output_root = ensure_safe_output(source_root, args.output)
-    targets = collect_ssns()
+    targets = collect_identifiers()
     print(f"\nProcessing {len(pdfs)} PDF(s). Originals will not be changed.\n")
     rows: list[dict[str, str]] = []
     error_count = 0

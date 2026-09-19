@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 import pymupdf
@@ -44,6 +45,68 @@ def extracted_text(path: Path) -> str:
 
 
 class RedactorTests(unittest.TestCase):
+    def test_bank_only_prompts_preserve_leading_zeros(self):
+        with patch('getpass.getpass', side_effect=['', '', '001234567890', '', '021000021', '']), patch('builtins.print'):
+            targets = redactor.collect_identifiers()
+        self.assertEqual(targets, [redactor.Identifier('Bank account', '001234567890'),
+                                   redactor.Identifier('Bank routing', '021000021')])
+
+    def test_boxed_routing_on_scan_with_text_layer(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / 'scan.pdf'
+            destination = Path(directory) / 'redacted.pdf'
+            value = '021000021'
+            with pymupdf.open() as original:
+                page = original.new_page()
+                for index, digit in enumerate(value):
+                    page.insert_text((72 + index * 14, 90), digit)
+                pixmap = page.get_pixmap(matrix=pymupdf.Matrix(2, 2))
+                with pymupdf.open() as scan:
+                    page = scan.new_page()
+                    page.insert_image(page.rect, pixmap=pixmap)
+                    for index, digit in enumerate(value):
+                        page.insert_text((72 + index * 14, 90), digit, render_mode=3)
+                    scan.save(source)
+            targets = [redactor.Identifier('Bank routing', value)]
+            matches = redactor.redact_pdf(source, destination, targets)
+            self.assertEqual(len(matches), 1)
+            self.assertFalse(redactor.verify_text_removed(destination, targets))
+            with pymupdf.open(destination) as document:
+                pixels = document[0].get_pixmap(clip=pymupdf.Rect(74, 80, 185, 88))
+                self.assertEqual(max(pixels.samples), 0)
+
+    def test_additional_identifiers_in_text_and_form_fields(self):
+        targets = [redactor.Identifier("Driver's license", 'A01234567'),
+                   redactor.Identifier('Bank account', '001234567890'),
+                   redactor.Identifier('Bank routing', '021000021')]
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / 'identifiers.pdf'
+            destination = Path(directory) / 'redacted.pdf'
+            with pymupdf.open() as document:
+                page = document.new_page()
+                page.insert_text((72, 72), 'License: a012-34567')
+                page.insert_text((72, 110), 'Account: 0012 3456 7890')
+                page.insert_text((72, 148), 'Keep longer value: 90210000219')
+                page.insert_text((72, 180), 'Keep words: 021 fee 000021')
+                widget = pymupdf.Widget()
+                widget.field_name = 'routing'
+                widget.field_type = pymupdf.PDF_WIDGET_TYPE_TEXT
+                widget.rect = pymupdf.Rect(72, 210, 210, 235)
+                widget.field_value = targets[2].value
+                page.add_widget(widget)
+                document.save(source)
+            matches = redactor.redact_pdf(source, destination, targets, True)
+            self.assertEqual(len(matches), 3)
+            with pymupdf.open(destination) as document:
+                text = document[0].get_text()
+                self.assertIn('90210000219', text)
+                self.assertIn('021 fee 000021', text)
+                self.assertNotIn('a012-34567', text)
+                self.assertNotIn('0012 3456 7890', text)
+                self.assertFalse(document.is_form_pdf)
+            self.assertFalse(redactor.verify_text_removed(destination, targets))
+            self.assertNotIn('001234567890', repr(targets))
+
     def test_editable_ssn_field_is_removed(self):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / 'form.pdf'
