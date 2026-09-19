@@ -64,14 +64,15 @@ before matching. Redacted copies therefore no longer have editable form fields.
 
 ### Redact contextual last-four forms
 
-To also remove the last four digits when they appear near an SSN label or in a
-masked form such as `XXX-XX-1234`, add `--redact-last-four`:
+By default, the tool also removes the last four digits when they appear near an
+SSN label or in a masked form such as `XXX-XX-1234`. To disable this behavior,
+add `--no-redact-last-four`:
 
 ```bash
 python3 ./redact_ssn_pdfs.py \
   "/path/to/Original Tax PDFs" \
   "/path/to/Redacted Tax PDFs" \
-  --redact-last-four
+  --no-redact-last-four
 ```
 
 This option deliberately does not remove every matching four-digit number.

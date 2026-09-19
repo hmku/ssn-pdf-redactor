@@ -119,10 +119,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--redact-last-four",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
+        default=True,
         help=(
             "Also redact the SSN's last four digits when SSN-related text is "
-            "nearby or the number is visibly masked"
+            "nearby or the number is visibly masked (enabled by default)"
         ),
     )
     return parser.parse_args()
