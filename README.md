@@ -45,6 +45,8 @@ finished.
 
 The matcher ignores punctuation and spacing, so the same target can match
 `123-45-6789`, `123 45 6789`, or `123456789` when OCR recognizes it correctly.
+It also reconstructs visually adjacent digits that a tax form stores as
+separate internal text lines, including the boxed SSN fields on Form 1040.
 
 ### Redact contextual last-four forms
 

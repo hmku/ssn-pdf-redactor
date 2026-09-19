@@ -6,6 +6,7 @@ venv/
 dist/
 build/
 *.egg-info/
+tmp/
 
 # PDFs and redaction reports may contain sensitive information.
 *.pdf

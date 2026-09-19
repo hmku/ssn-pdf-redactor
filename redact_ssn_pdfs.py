@@ -15,7 +15,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -142,11 +141,51 @@ def run_ocr(source: Path, destination: Path) -> None:
 
 
 def line_word_groups(page) -> list[list[tuple]]:
-    groups: dict[tuple[int, int], list[tuple]] = defaultdict(list)
-    for word in page.get_text("words", sort=True):
-        # x0, y0, x1, y1, text, block_no, line_no, word_no
-        groups[(int(word[5]), int(word[6]))].append(word)
-    return [sorted(words, key=lambda w: int(w[7])) for words in groups.values()]
+    """Return visual text runs instead of trusting PDF block/line metadata.
+
+    Tax-form fields commonly store each SSN segment—or even each digit—as a
+    separate PDF text object. PyMuPDF can therefore report visually adjacent
+    boxes as unrelated blocks and lines. Reconstructing rows from coordinates
+    lets those segments match while a horizontal-gap limit prevents distant
+    fields on the same row from being concatenated.
+    """
+    words = list(page.get_text("words", sort=True))
+    if not words:
+        return []
+
+    visual_rows: list[list[tuple]] = []
+    for word in sorted(words, key=lambda item: ((item[1] + item[3]) / 2, item[0])):
+        word_center = (word[1] + word[3]) / 2
+        word_height = max(1.0, word[3] - word[1])
+        for row in visual_rows:
+            row_top = min(item[1] for item in row)
+            row_bottom = max(item[3] for item in row)
+            row_center = (row_top + row_bottom) / 2
+            row_height = max(1.0, row_bottom - row_top)
+            tolerance = max(3.0, min(word_height, row_height) * 0.55)
+            if abs(word_center - row_center) <= tolerance:
+                row.append(word)
+                break
+        else:
+            visual_rows.append([word])
+
+    groups: list[list[tuple]] = []
+    for row in visual_rows:
+        row.sort(key=lambda item: item[0])
+        run = [row[0]]
+        for word in row[1:]:
+            previous = run[-1]
+            gap = word[0] - previous[2]
+            height = max(previous[3] - previous[1], word[3] - word[1], 1.0)
+            # SSN boxes usually have small gaps between digits or sections.
+            # A limit tied to text height avoids joining unrelated table cells.
+            if gap <= max(18.0, height * 2.5):
+                run.append(word)
+            else:
+                groups.append(run)
+                run = [word]
+        groups.append(run)
+    return groups
 
 
 SSN_CONTEXT = re.compile(
