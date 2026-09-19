@@ -44,6 +44,25 @@ def extracted_text(path: Path) -> str:
 
 
 class RedactorTests(unittest.TestCase):
+    def test_editable_ssn_field_is_removed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / 'form.pdf'
+            destination = Path(directory) / 'redacted.pdf'
+            with pymupdf.open() as document:
+                page = document.new_page()
+                widget = pymupdf.Widget()
+                widget.field_name = 'taxpayer_ssn'
+                widget.field_type = pymupdf.PDF_WIDGET_TYPE_TEXT
+                widget.rect = pymupdf.Rect(72, 72, 200, 95)
+                widget.field_value = TARGET
+                page.add_widget(widget)
+                document.save(source)
+            matches = redactor.redact_pdf(source, destination, [TARGET])
+            self.assertEqual(len(matches), 1)
+            with pymupdf.open(destination) as document:
+                self.assertFalse(document.is_form_pdf)
+                self.assertNotIn(TARGET, document[0].get_text())
+
     def test_redacts_ssn_split_across_form_boxes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "boxed.pdf"

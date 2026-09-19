@@ -47,6 +47,8 @@ The matcher ignores punctuation and spacing, so the same target can match
 `123-45-6789`, `123 45 6789`, or `123456789` when OCR recognizes it correctly.
 It also reconstructs visually adjacent digits that a tax form stores as
 separate internal text lines, including the boxed SSN fields on Form 1040.
+Editable PDF form fields are converted into page content in the output copy
+before matching. Redacted copies therefore no longer have editable form fields.
 
 ### Redact contextual last-four forms
 
@@ -87,6 +89,15 @@ The tests use only synthetic SSNs and PDFs:
 ```bash
 python3 -m unittest discover -s tests -v
 ```
+
+To test the actual fillable 2025 IRS Form 1040, supply a blank form locally:
+
+```bash
+python3 tests/check_1040.py /path/to/blank/f1040.pdf tmp/pdfs/1040
+```
+
+This fills taxpayer and spouse fields with synthetic identifiers, checks removal
+from page text and field values, and renders before/after images for inspection.
 
 ## License
 

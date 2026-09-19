@@ -254,6 +254,11 @@ def find_matches(
             full_offsets = all_offsets(digits, target)
             for start in full_offsets:
                 contributing = sorted(set(digit_to_word[start : start + 9]))
+                # Digits separated by explanatory words are unrelated values,
+                # even if dropping all nondigits happens to produce a target.
+                between = words[contributing[0] : contributing[-1] + 1]
+                if any(re.search(r'[A-Za-z]', str(word[4])) for word in between):
+                    continue
                 rect = words_rect(words, contributing)
                 key = (
                     target_index,
@@ -317,6 +322,11 @@ def redact_pdf(
     document = pymupdf.open(source)
     all_matches: list[Match] = []
     try:
+        # Widget appearances are not ordinary page text, and applying page
+        # redactions alone can leave their recoverable /V values intact.
+        # Bake fields into this output copy before extracting and redacting.
+        if document.is_form_pdf:
+            document.bake(annots=False, widgets=True)
         for page_index, page in enumerate(document):
             page_matches = find_matches(
                 page, targets, page_index + 1, redact_last_four=redact_last_four
