@@ -45,6 +45,30 @@ def extracted_text(path: Path) -> str:
 
 
 class RedactorTests(unittest.TestCase):
+    def test_hyphenated_last_four(self):
+        # Exercise extracted word coordinates without saving any identifiers.
+        class Page:
+            def __init__(self, text):
+                self.text = text
+
+            def get_text(self, *args, **kwargs):
+                words, x = [], 72
+                for index, token in enumerate(self.text.split()):
+                    words.append((x, 72, x + len(token) * 6, 84,
+                                  token, 0, 0, index))
+                    x += len(token) * 6 + 4
+                return words
+
+        for text, expected in [('-6789', 1), ('- 6789', 1),
+                               ('-6789 Reference: 6789', 1),
+                               ('Loss: -6789', 1), ('ZIP: 10001-6789', 1),
+                               ('Reference: ABC-6789', 1),
+                               ('Reference: 6789', 0), ('-67890', 0),
+                               ('-6789A', 0), ('123-45-6789', 1)]:
+            with self.subTest(text=text):
+                self.assertEqual(len(redactor.find_matches(Page(text), [TARGET], 1, True)), expected)
+        self.assertEqual(redactor.find_matches(Page('-6789'), [TARGET], 1, False), [])
+
     def test_bank_only_prompts_preserve_leading_zeros(self):
         with patch('getpass.getpass', side_effect=['', '', '001234567890', '', '021000021', '']), patch('builtins.print'):
             targets = redactor.collect_identifiers()

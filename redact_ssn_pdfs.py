@@ -123,7 +123,8 @@ def parse_args() -> argparse.Namespace:
         default=True,
         help=(
             "Also redact the SSN's last four digits when SSN-related text is "
-            "nearby or the number is visibly masked (enabled by default)"
+            "nearby, the number is visibly masked, or the four digits follow a hyphen "
+            "(enabled by default)"
         ),
     )
     return parser.parse_args()
@@ -311,11 +312,17 @@ def find_matches(
     for line_index, (words, line_rect, line_text) in enumerate(line_data):
         digit_stream: list[str] = []
         digit_to_word: list[int] = []
+        digit_to_text: list[int] = []
+        text_to_word: list[int] = []
         for word_index, word in enumerate(words):
+            if word_index:
+                text_to_word.append(word_index)
             for character in str(word[4]):
                 if character.isdigit():
                     digit_stream.append(character)
                     digit_to_word.append(word_index)
+                    digit_to_text.append(len(text_to_word))
+                text_to_word.append(word_index)
         digits = "".join(digit_stream)
         for target_index, target in enumerate(targets, start=1):
             full_offsets = all_offsets(digits, target)
@@ -342,6 +349,14 @@ def find_matches(
                 continue
 
             last_four = target[-4:]
+            # Match each hyphenated occurrence separately, so it cannot grant
+            # context to unrelated four-digit values elsewhere on the row.
+            hyphenated = {
+                match.start(1): text_to_word[match.start()]
+                for match in re.finditer(
+                    rf"-\s*({re.escape(last_four)})(?![\w])", line_text
+                )
+            }
             has_context = bool(SSN_CONTEXT.search(line_text)) or masked_last_four(
                 line_text, last_four
             )
@@ -355,14 +370,19 @@ def find_matches(
                 has_context = 0 <= vertical_gap <= 40 and bool(
                     SSN_CONTEXT.search(previous_text)
                 )
-            if not has_context:
+            if not has_context and not hyphenated:
                 continue
 
             for start in all_offsets(digits, last_four):
+                hyphen_word = hyphenated.get(digit_to_text[start])
+                if not has_context and hyphen_word is None:
+                    continue
                 # A full SSN match already covers its own last four digits.
                 if any(full <= start and start + 4 <= full + 9 for full in full_offsets):
                     continue
                 contributing = sorted(set(digit_to_word[start : start + 4]))
+                if hyphen_word is not None:
+                    contributing = sorted(set([hyphen_word, *contributing]))
                 rect = words_rect(words, contributing)
                 key = (
                     target_index,
@@ -473,7 +493,7 @@ def process_one(
             return "error", [], f"Redaction failed: {exc}"
     if not matches:
         return "review", [], "No exact identifier match found; inspect this PDF manually"
-    scope = "Full and contextual last-four matches" if redact_last_four else "Exact matches"
+    scope = "Full and contextual or hyphenated last-four matches" if redact_last_four else "Exact matches"
     return "redacted", matches, f"{scope} removed; visually inspect the listed pages"
 
 

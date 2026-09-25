@@ -65,7 +65,10 @@ before matching. Redacted copies therefore no longer have editable form fields.
 ### Redact contextual last-four forms
 
 By default, the tool also removes the last four digits when they appear near an
-SSN label or in a masked form such as `XXX-XX-1234`. To disable this behavior,
+SSN label, in a masked form such as `XXX-XX-1234`, or after a hyphen such as
+`-1234` (including a hyphen separated by spaces). Hyphenated matches do not
+require an SSN label, so this can also redact matching negative amounts,
+ZIP-code suffixes, or reference numbers. To disable this behavior,
 add `--no-redact-last-four`:
 
 ```bash
